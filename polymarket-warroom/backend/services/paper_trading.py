@@ -60,6 +60,11 @@ class ClosedTrade:
         position_size: float,
         pnl: float,
         reason: str = "",
+        question: str = "",
+        direction: str = "",
+        strategy: str = "",
+        opened_at: Optional[datetime] = None,
+        closed_at: Optional[datetime] = None,
     ):
         self.id = id
         self.market_id = market_id
@@ -68,6 +73,11 @@ class ClosedTrade:
         self.position_size = position_size
         self.pnl = pnl
         self.reason = reason
+        self.question = question
+        self.direction = direction
+        self.strategy = strategy
+        self.opened_at = opened_at
+        self.closed_at = closed_at or datetime.utcnow()
 
 
 class PaperTradingEngine:
@@ -106,6 +116,10 @@ class PaperTradingEngine:
             total += trade.position_size * (1 + pnl_pct)
         return total
 
+    def has_position_in_market(self, market_id: str) -> bool:
+        """Check if there's already an open position in this market."""
+        return any(t.market_id == market_id for t in self.open_trades)
+
     async def execute_buy(
         self,
         market_id: str,
@@ -118,6 +132,11 @@ class PaperTradingEngine:
         target_price: Optional[float] = None,
     ) -> Optional[OpenTrade]:
         """Execute a paper buy order."""
+        # Duplicate prevention — one position per market
+        if self.has_position_in_market(market_id):
+            logger.warning(f"Duplicate blocked: already have position in {market_id}")
+            return None
+
         if amount > self.cash:
             logger.warning(f"Insufficient cash: need ${amount:.2f}, have ${self.cash:.2f}")
             return None
@@ -190,6 +209,10 @@ class PaperTradingEngine:
             position_size=trade.position_size,
             pnl=pnl,
             reason=reason,
+            question=trade.question,
+            direction=trade.direction.value,
+            strategy=trade.strategy,
+            opened_at=trade.opened_at,
         )
         self._trade_history.append(closed)
 

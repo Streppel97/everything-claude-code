@@ -45,17 +45,19 @@ function App() {
   const [signals, setSignals] = useState([])
   const [activity, setActivity] = useState([])
   const [metrics, setMetrics] = useState(null)
+  const [postMortem, setPostMortem] = useState(null)
   const { wsData, connected } = useWebSocket()
 
   const fetchAll = useCallback(async () => {
     try {
-      const [s, p, t, sig, act, m] = await Promise.all([
+      const [s, p, t, sig, act, m, pm] = await Promise.all([
         fetch(`${API}/status`).then(r => r.json()),
         fetch(`${API}/positions`).then(r => r.json()),
         fetch(`${API}/trades`).then(r => r.json()),
         fetch(`${API}/signals`).then(r => r.json()),
         fetch(`${API}/activity`).then(r => r.json()),
         fetch(`${API}/metrics`).then(r => r.json()),
+        fetch(`${API}/post-mortem`).then(r => r.json()),
       ])
       setStatus(s)
       setPositions(p.positions || [])
@@ -63,6 +65,7 @@ function App() {
       setSignals(sig.signals || [])
       setActivity(act.activity || [])
       setMetrics(m)
+      setPostMortem(pm)
     } catch (err) {
       console.error('Fetch error:', err)
     }
@@ -84,8 +87,11 @@ function App() {
     }
   }, [wsData])
 
-  const handleAction = async (action) => {
-    await fetch(`${API}/${action}`, { method: 'POST' })
+  const handleAction = async (action, params) => {
+    const url = params
+      ? `${API}/${action}?${new URLSearchParams(params)}`
+      : `${API}/${action}`
+    await fetch(url, { method: 'POST' })
     setTimeout(fetchAll, 500)
   }
 
@@ -97,6 +103,7 @@ function App() {
       signals={signals}
       activity={activity}
       metrics={metrics}
+      postMortem={postMortem}
       connected={connected}
       onAction={handleAction}
       onRefresh={fetchAll}

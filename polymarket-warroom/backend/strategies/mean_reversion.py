@@ -22,12 +22,12 @@ class MeanReversionStrategy:
 
     def __init__(
         self,
-        min_1h_overreaction: float = 0.05,
+        min_1h_overreaction: float = 0.03,  # Lowered from 0.05 — catch smaller overreactions
         max_6h_trend: float = 0.03,
-        min_liquidity: float = 5000,
-        min_volume: float = 2000,
-        min_price: float = 0.15,
-        max_price: float = 0.85,
+        min_liquidity: float = 3000,         # Lowered from 5000
+        min_volume: float = 1000,            # Lowered from 2000
+        min_price: float = 0.12,             # Lowered from 0.15
+        max_price: float = 0.88,             # Raised from 0.85
     ):
         self.min_1h_overreaction = min_1h_overreaction
         self.max_6h_trend = max_6h_trend

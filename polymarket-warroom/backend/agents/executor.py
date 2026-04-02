@@ -17,6 +17,7 @@ from backend.db.database import ActivityLogRow, SignalRow, async_session
 from backend.models.trade import TradeDirection, TradeSignal
 from backend.services.paper_trading import PaperTradingEngine
 from backend.services.polymarket_client import PolymarketClient
+from backend.services.post_mortem import PostMortemAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ class ExecutorAgent:
         self._callbacks: list = []
         # Market name cache: market_id → question text
         self._market_names: dict[str, str] = {}
+        self.post_mortem = PostMortemAnalyzer()
 
     def on_activity(self, callback):
         self._callbacks.append(callback)
@@ -67,7 +69,9 @@ class ExecutorAgent:
         """Execute one full pipeline cycle."""
         cycle_results = []
 
-        # Step 1: Scan
+        # Step 1: Scan (exclude markets with open positions)
+        open_market_ids = {t.market_id for t in self.paper_engine.open_trades}
+        self.scanner.set_excluded_markets(open_market_ids)
         self._log("scanner", "Scanning markets...")
         market_signals = await self.scanner.scan_once()
 
@@ -144,6 +148,7 @@ class ExecutorAgent:
             except Exception as e:
                 logger.error(f"Pipeline error: {e}")
                 self._log("executor", f"ERROR: {e}")
+                self.post_mortem.record_system_failure("pipeline", str(e))
 
             for _ in range(max(1, interval // SCALP_EXIT_CHECK_INTERVAL - 1)):
                 if not self._running:
@@ -179,6 +184,11 @@ class ExecutorAgent:
             dir_enum = TradeDirection(direction)
         except ValueError:
             dir_enum = TradeDirection.BUY_YES if direction.upper() in ("YES", "BUY_YES") else TradeDirection.BUY_NO
+
+        # Duplicate prevention for manual trades
+        if self.paper_engine.has_position_in_market(market_id):
+            self._log("executor", f"Manual BUY rejected: already have position in {market_id}")
+            return None
 
         market = await self.client.get_market(market_id)
         if not market:
@@ -225,6 +235,8 @@ class ExecutorAgent:
         closed = await self.paper_engine.execute_sell(trade_id, price, reason="manual")
         if closed:
             self._log("executor", f"Manual SELL: \"{market_name}\", P&L=${closed.pnl:+.2f}")
+            pm = self.post_mortem.analyze_trade(closed)
+            self._log("post_mortem", f"[{pm.category}] #{pm.trade_id}: {pm.diagnosis}")
             return {
                 "action": "sell",
                 "trade_id": trade_id,
@@ -235,9 +247,18 @@ class ExecutorAgent:
         return None
 
     async def _check_all_exits(self, prices: dict[str, float]):
+        # Snapshot trade count before exits to detect new closures
+        history_before = len(self.paper_engine.trade_history)
+
         await self.paper_engine.check_stop_losses(prices)
         await self.paper_engine.check_take_profits(prices)
         await self._check_scalp_timeouts(prices)
+
+        # Run post-mortem on any newly closed trades
+        new_closures = self.paper_engine.trade_history[history_before:]
+        for closed in new_closures:
+            pm = self.post_mortem.analyze_trade(closed)
+            self._log("post_mortem", f"[{pm.category}] #{pm.trade_id} {pm.strategy}: {pm.diagnosis}")
 
     async def _quick_exit_check(self):
         if not self.paper_engine.open_trades:

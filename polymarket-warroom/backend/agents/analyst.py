@@ -76,15 +76,18 @@ class AnalystAgent:
         return ranked
 
     def _evaluate_with_all_strategies(self, signal: MarketSignal) -> list[TradeSignal]:
-        """Run a single market through all strategies."""
+        """Run a single market through all strategies.
+
+        Volume spike is advisory only — it boosts confidence of other
+        strategies but never produces its own trade signals (7% WR historically).
+        """
         results = []
 
-        # Scalping first (primary strategy)
+        # Active strategies that produce trade signals
         strategies = [
             ("scalping", self.scalping),
             ("momentum", self.momentum),
             ("mean_reversion", self.mean_reversion),
-            ("volume_spike", self.volume_spike),
         ]
 
         for name, strategy in strategies:
@@ -94,6 +97,16 @@ class AnalystAgent:
                     results.append(trade_signal)
             except Exception as e:
                 logger.error(f"Strategy {name} error on {signal.market_id}: {e}")
+
+        # Volume spike as advisory: boost confidence if volume anomaly detected
+        try:
+            has_vol_spike = self.volume_spike.has_volume_spike(signal)
+            if has_vol_spike and results:
+                for ts in results:
+                    ts.confidence = min(ts.confidence + 0.08, 0.95)
+                    ts.reasoning += "; VOL_SPIKE_BOOST"
+        except Exception as e:
+            logger.error(f"Volume spike check error on {signal.market_id}: {e}")
 
         # If multiple strategies agree on direction, boost the best one's confidence
         if len(results) > 1:

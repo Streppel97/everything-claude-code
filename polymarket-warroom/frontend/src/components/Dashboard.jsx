@@ -52,6 +52,16 @@ const styles = {
     fontSize: '12px',
     fontFamily: 'inherit',
   },
+  btnSmall: {
+    padding: '3px 10px',
+    border: '1px solid #ff4444',
+    borderRadius: '3px',
+    background: '#2a0a0a',
+    color: '#ff4444',
+    cursor: 'pointer',
+    fontSize: '10px',
+    fontFamily: 'inherit',
+  },
   grid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
@@ -80,12 +90,6 @@ const styles = {
     color: '#666',
     marginTop: '2px',
   },
-  statRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    padding: '4px 0',
-    borderBottom: '1px solid #1a1a2e',
-  },
   table: {
     width: '100%',
     borderCollapse: 'collapse',
@@ -113,15 +117,24 @@ const styles = {
     background: connected ? '#00ff88' : '#ff4444',
     display: 'inline-block',
   }),
-  badge: (type) => ({
-    padding: '2px 8px',
-    borderRadius: '3px',
-    fontSize: '10px',
-    fontWeight: 'bold',
-    background: type === 'scalping' ? '#1a2a1a' : type === 'momentum' ? '#1a1a2a' : '#2a1a1a',
-    color: type === 'scalping' ? '#00ff88' : type === 'momentum' ? '#4488ff' : '#ff8844',
-    border: `1px solid ${type === 'scalping' ? '#00ff8833' : type === 'momentum' ? '#4488ff33' : '#ff884433'}`,
-  }),
+  badge: (type) => {
+    const colors = {
+      scalping: { bg: '#1a2a1a', fg: '#00ff88', border: '#00ff8833' },
+      momentum: { bg: '#1a1a2a', fg: '#4488ff', border: '#4488ff33' },
+      mean_reversion: { bg: '#2a2a1a', fg: '#ffcc44', border: '#ffcc4433' },
+      manual: { bg: '#2a1a2a', fg: '#cc88ff', border: '#cc88ff33' },
+    }
+    const c = colors[type] || { bg: '#2a1a1a', fg: '#ff8844', border: '#ff884433' }
+    return {
+      padding: '2px 8px',
+      borderRadius: '3px',
+      fontSize: '10px',
+      fontWeight: 'bold',
+      background: c.bg,
+      color: c.fg,
+      border: `1px solid ${c.border}`,
+    }
+  },
   activityLog: {
     maxHeight: '300px',
     overflowY: 'auto',
@@ -136,6 +149,12 @@ const styles = {
   },
   logTime: { color: '#444', minWidth: '70px' },
   logAgent: { color: '#4488ff', minWidth: '80px' },
+  truncate: {
+    maxWidth: '180px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
 }
 
 function pnlColor(val) {
@@ -160,7 +179,19 @@ function fmtPct(val) {
   return `${(val * 100).toFixed(1)}%`
 }
 
-function Dashboard({ status, positions, trades, signals, activity, metrics, connected, onAction, onRefresh }) {
+function fmtTime(iso) {
+  if (!iso) return '-'
+  return iso.split('T')[1]?.slice(0, 8) || '-'
+}
+
+function fmtDateTime(iso) {
+  if (!iso) return '-'
+  const d = iso.split('T')[0]?.slice(5) || ''
+  const t = iso.split('T')[1]?.slice(0, 5) || ''
+  return `${d} ${t}`
+}
+
+function Dashboard({ status, positions, trades, signals, activity, metrics, postMortem, connected, onAction, onRefresh }) {
   const portfolio = status?.portfolio || {}
   const totalValue = portfolio.total_value || 0
   const totalPnl = portfolio.total_pnl || 0
@@ -261,48 +292,61 @@ function Dashboard({ status, positions, trades, signals, activity, metrics, conn
         </div>
       )}
 
-      {/* Positions + Signals */}
-      <div style={{ ...styles.grid, gridTemplateColumns: '1fr 1fr' }}>
-        {/* Open Positions */}
-        <div style={styles.card}>
-          <div style={styles.cardTitle}>Open Positions</div>
-          {positions.length === 0 ? (
-            <div style={{ color: '#444', fontSize: '12px' }}>No open positions</div>
-          ) : (
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>Market</th>
-                  <th style={styles.th}>Dir</th>
-                  <th style={styles.th}>Entry</th>
-                  <th style={styles.th}>Current</th>
-                  <th style={styles.th}>P&L</th>
-                  <th style={styles.th}>Strategy</th>
+      {/* Open Positions (full width with close button) */}
+      <div style={{ ...styles.card, marginBottom: '16px' }}>
+        <div style={styles.cardTitle}>Open Positions</div>
+        {positions.length === 0 ? (
+          <div style={{ color: '#444', fontSize: '12px' }}>No open positions</div>
+        ) : (
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>Market</th>
+                <th style={styles.th}>Dir</th>
+                <th style={styles.th}>Entry</th>
+                <th style={styles.th}>Current</th>
+                <th style={styles.th}>Size</th>
+                <th style={styles.th}>P&L</th>
+                <th style={styles.th}>Strategy</th>
+                <th style={styles.th}>Opened</th>
+                <th style={styles.th}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {positions.map(p => (
+                <tr key={p.id}>
+                  <td style={{ ...styles.td, ...styles.truncate }} title={p.question}>
+                    {p.question || p.market_id}
+                  </td>
+                  <td style={styles.td}>{p.direction === 'BUY_YES' ? 'YES' : 'NO'}</td>
+                  <td style={styles.td}>{fmt(p.entry_price, 4)}</td>
+                  <td style={styles.td}>{fmt(p.current_price, 4)}</td>
+                  <td style={styles.td}>${fmt(p.position_size)}</td>
+                  <td style={{ ...styles.td, ...pnlColor(p.pnl) }}>
+                    {fmtUsd(p.pnl)} ({fmtPct(p.pnl_pct)})
+                  </td>
+                  <td style={styles.td}>
+                    <span style={styles.badge(p.strategy)}>{p.strategy}</span>
+                  </td>
+                  <td style={styles.td}>{fmtDateTime(p.opened_at)}</td>
+                  <td style={styles.td}>
+                    <button
+                      style={styles.btnSmall}
+                      onClick={() => onAction('sell', { trade_id: p.id })}
+                      title="Close this position"
+                    >
+                      CLOSE
+                    </button>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {positions.map(p => (
-                  <tr key={p.id}>
-                    <td style={{ ...styles.td, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                        title={p.question}>
-                      {p.question || p.market_id}
-                    </td>
-                    <td style={styles.td}>{p.direction === 'BUY_YES' ? 'YES' : 'NO'}</td>
-                    <td style={styles.td}>{fmt(p.entry_price, 4)}</td>
-                    <td style={styles.td}>{fmt(p.current_price, 4)}</td>
-                    <td style={{ ...styles.td, ...pnlColor(p.pnl) }}>
-                      {fmtUsd(p.pnl)} ({fmtPct(p.pnl_pct)})
-                    </td>
-                    <td style={styles.td}>
-                      <span style={styles.badge(p.strategy)}>{p.strategy}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
 
+      {/* Signals + Trade History */}
+      <div style={{ ...styles.grid, gridTemplateColumns: '1fr 1fr' }}>
         {/* Latest Signals */}
         <div style={styles.card}>
           <div style={styles.cardTitle}>Latest Signals</div>
@@ -322,7 +366,7 @@ function Dashboard({ status, positions, trades, signals, activity, metrics, conn
               <tbody>
                 {signals.slice(0, 10).map((s, i) => (
                   <tr key={i}>
-                    <td style={{ ...styles.td, maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <td style={{ ...styles.td, ...styles.truncate }}>
                       {s.market_id.slice(0, 12)}...
                     </td>
                     <td style={styles.td}>{s.direction === 'BUY_YES' ? 'YES' : 'NO'}</td>
@@ -337,11 +381,8 @@ function Dashboard({ status, positions, trades, signals, activity, metrics, conn
             </table>
           )}
         </div>
-      </div>
 
-      {/* Trade History + Activity Log */}
-      <div style={{ ...styles.grid, gridTemplateColumns: '1fr 1fr', marginTop: '16px' }}>
-        {/* Recent Trades */}
+        {/* Recent Trades (enriched) */}
         <div style={styles.card}>
           <div style={styles.cardTitle}>Recent Trades</div>
           {trades.length === 0 ? (
@@ -350,27 +391,119 @@ function Dashboard({ status, positions, trades, signals, activity, metrics, conn
             <table style={styles.table}>
               <thead>
                 <tr>
-                  <th style={styles.th}>#</th>
+                  <th style={styles.th}>Market</th>
+                  <th style={styles.th}>Dir</th>
+                  <th style={styles.th}>Strategy</th>
                   <th style={styles.th}>Entry</th>
                   <th style={styles.th}>Exit</th>
-                  <th style={styles.th}>Size</th>
                   <th style={styles.th}>P&L</th>
                   <th style={styles.th}>Reason</th>
+                  <th style={styles.th}>Closed At</th>
                 </tr>
               </thead>
               <tbody>
                 {trades.slice(-20).reverse().map(t => (
                   <tr key={t.id}>
-                    <td style={styles.td}>{t.id}</td>
+                    <td style={{ ...styles.td, ...styles.truncate }} title={t.question}>
+                      {t.question || t.market_id?.slice(0, 12)}
+                    </td>
+                    <td style={styles.td}>
+                      {t.direction === 'BUY_YES' ? 'YES' : t.direction === 'BUY_NO' ? 'NO' : '-'}
+                    </td>
+                    <td style={styles.td}>
+                      <span style={styles.badge(t.strategy)}>{t.strategy || '-'}</span>
+                    </td>
                     <td style={styles.td}>{fmt(t.entry_price, 4)}</td>
                     <td style={styles.td}>{fmt(t.exit_price, 4)}</td>
-                    <td style={styles.td}>${fmt(t.position_size)}</td>
                     <td style={{ ...styles.td, ...pnlColor(t.pnl) }}>{fmtUsd(t.pnl)}</td>
                     <td style={styles.td}>{t.reason}</td>
+                    <td style={styles.td}>{fmtDateTime(t.closed_at)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          )}
+        </div>
+      </div>
+
+      {/* Post-Mortem Analysis + Activity Log */}
+      <div style={{ ...styles.grid, gridTemplateColumns: '1fr 1fr', marginTop: '16px' }}>
+        {/* Post-Mortem Analysis */}
+        <div style={styles.card}>
+          <div style={styles.cardTitle}>Trade Post-Mortem</div>
+          {!postMortem || postMortem.total_trades === 0 ? (
+            <div style={{ color: '#444', fontSize: '12px' }}>No trade analysis yet</div>
+          ) : (
+            <div>
+              {/* Summary stats */}
+              <div style={{ display: 'flex', gap: '16px', marginBottom: '12px', fontSize: '12px' }}>
+                <div>
+                  <span style={{ color: '#888' }}>WR: </span>
+                  <span style={pnlColor(postMortem.win_rate > 0.5 ? 1 : -1)}>
+                    {fmtPct(postMortem.win_rate)}
+                  </span>
+                </div>
+                <div>
+                  <span style={{ color: '#888' }}>Avg Win: </span>
+                  <span style={styles.positive}>{fmtUsd(postMortem.avg_win)}</span>
+                </div>
+                <div>
+                  <span style={{ color: '#888' }}>Avg Loss: </span>
+                  <span style={styles.negative}>{fmtUsd(postMortem.avg_loss)}</span>
+                </div>
+              </div>
+
+              {/* Loss patterns */}
+              {postMortem.loss_analysis?.patterns?.length > 0 && (
+                <div style={{ marginBottom: '12px' }}>
+                  <div style={{ fontSize: '11px', color: '#ff8844', marginBottom: '6px' }}>PATTERNS DETECTED:</div>
+                  {postMortem.loss_analysis.patterns.map((p, i) => (
+                    <div key={i} style={{ fontSize: '11px', padding: '4px 0', borderBottom: '1px solid #1a1a2e' }}>
+                      <span style={{ color: '#ff4444' }}>[{p.type}]</span>{' '}
+                      {p.recommendation}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Recent post-mortems */}
+              <div style={{ ...styles.activityLog, maxHeight: '200px' }}>
+                {(postMortem.recent_post_mortems || []).slice().reverse().map((pm, i) => (
+                  <div key={i} style={{ ...styles.logEntry, flexDirection: 'column', gap: '2px', padding: '4px 0' }}>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <span style={{
+                        ...styles.badge(pm.strategy),
+                        fontSize: '9px',
+                      }}>{pm.strategy}</span>
+                      <span style={pnlColor(pm.pnl)}>{fmtUsd(pm.pnl)}</span>
+                      <span style={{ color: '#666', fontSize: '10px' }}>
+                        [{pm.category}] {pm.reason}
+                      </span>
+                      <span style={{ color: '#444', fontSize: '10px', marginLeft: 'auto' }}>
+                        {fmtTime(pm.closed_at)}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '10px', color: '#888', paddingLeft: '4px' }}>
+                      {pm.diagnosis}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* System failures */}
+              {postMortem.system_failures?.length > 0 && (
+                <div style={{ marginTop: '12px' }}>
+                  <div style={{ fontSize: '11px', color: '#ff4444', marginBottom: '4px' }}>
+                    SYSTEM FAILURES ({postMortem.system_failures.length})
+                  </div>
+                  {postMortem.system_failures.slice(-5).reverse().map((f, i) => (
+                    <div key={i} style={{ fontSize: '10px', color: '#ff6666', padding: '2px 0' }}>
+                      [{fmtTime(f.timestamp)}] {f.component}: {f.error}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
 
@@ -381,9 +514,14 @@ function Dashboard({ status, positions, trades, signals, activity, metrics, conn
             {activity.slice().reverse().map((a, i) => (
               <div key={i} style={styles.logEntry}>
                 <span style={styles.logTime}>
-                  {a.timestamp ? a.timestamp.split('T')[1]?.slice(0, 8) : ''}
+                  {fmtTime(a.timestamp)}
                 </span>
-                <span style={styles.logAgent}>[{a.agent}]</span>
+                <span style={{
+                  ...styles.logAgent,
+                  color: a.agent === 'post_mortem' ? '#ff8844'
+                    : a.agent === 'system_failure' ? '#ff4444'
+                    : '#4488ff'
+                }}>[{a.agent}]</span>
                 <span>{a.message}</span>
               </div>
             ))}

@@ -23,6 +23,8 @@ class ScannerAgent:
         self._scan_count = 0
         self._last_scan: Optional[datetime] = None
         self._price_history: dict[str, list[tuple[datetime, float]]] = {}
+        # Markets with open positions — skip to avoid duplicate signals
+        self._excluded_market_ids: set[str] = set()
 
     @property
     def scan_count(self) -> int:
@@ -31,6 +33,10 @@ class ScannerAgent:
     @property
     def last_scan(self) -> Optional[datetime]:
         return self._last_scan
+
+    def set_excluded_markets(self, market_ids: set[str]):
+        """Update the set of markets to skip (already have open positions)."""
+        self._excluded_market_ids = market_ids
 
     async def scan_once(self) -> list[MarketSignal]:
         """Scan all active markets and return flagged signals."""
@@ -41,6 +47,10 @@ class ScannerAgent:
         signals = []
 
         for market in raw_markets:
+            # Skip markets we already have positions in
+            mid = market.condition_id
+            if mid in self._excluded_market_ids:
+                continue
             signal = self._evaluate_market(market)
             if signal:
                 signals.append(signal)

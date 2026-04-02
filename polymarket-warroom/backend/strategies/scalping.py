@@ -34,14 +34,14 @@ class ScalpingStrategy:
 
     def __init__(
         self,
-        min_1h_change: float = 0.01,
-        max_1h_change: float = 0.08,
-        max_spread: float = 0.02,
-        min_liquidity: float = 10000,
+        min_1h_change: float = 0.005,   # Lowered from 0.01 — catch smaller moves
+        max_1h_change: float = 0.10,    # Raised from 0.08 — allow bigger momentum
+        max_spread: float = 0.03,       # Raised from 0.02 — more markets qualify
+        min_liquidity: float = 5000,    # Lowered from 10000 — more markets qualify
         target_profit_pct: float = 0.02,
         stop_loss_pct: float = 0.01,
-        min_price: float = 0.15,
-        max_price: float = 0.85,
+        min_price: float = 0.12,        # Lowered from 0.15
+        max_price: float = 0.88,        # Raised from 0.85
     ):
         self.min_1h_change = min_1h_change
         self.max_1h_change = max_1h_change

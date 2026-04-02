@@ -168,11 +168,16 @@ async def get_trades():
         history.append({
             "id": trade.id,
             "market_id": trade.market_id,
+            "question": trade.question,
+            "direction": trade.direction,
+            "strategy": trade.strategy,
             "entry_price": trade.entry_price,
             "exit_price": trade.exit_price,
             "position_size": trade.position_size,
             "pnl": trade.pnl,
             "reason": trade.reason,
+            "opened_at": trade.opened_at.isoformat() if trade.opened_at else None,
+            "closed_at": trade.closed_at.isoformat() if trade.closed_at else None,
         })
     return {"trades": history}
 
@@ -208,6 +213,12 @@ async def get_activity():
 async def get_metrics():
     """Scalp cycle aggregate metrics."""
     return cycle_manager.get_aggregate_metrics()
+
+
+@app.get("/api/post-mortem")
+async def get_post_mortem():
+    """Trade post-mortem analysis and system failure logs."""
+    return executor.post_mortem.get_full_report()
 
 
 @app.post("/api/start")
